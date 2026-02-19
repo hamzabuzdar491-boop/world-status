@@ -135,82 +135,93 @@ export default function AdminPage() {
   useEffect(() => {
     if (!isAdmin) return;
     const q = query(collection(db, "statuses"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const items: StatusItem[] = snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          url: data.url,
-          type: data.type || "image",
-          caption: data.caption || "",
-          userId: data.userId,
-          userName: data.userName || "User",
-          userPhoto: data.userPhoto || "",
-          likes: data.likes || 0,
-          commentCount: data.commentCount || 0,
-          views: data.views || 0,
-          featured: data.featured || false,
-          hidden: data.hidden || false,
-          createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
-        };
-      });
-      setStatuses(items);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const items: StatusItem[] = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            url: data.url,
+            type: data.type || "image",
+            caption: data.caption || "",
+            userId: data.userId,
+            userName: data.userName || "User",
+            userPhoto: data.userPhoto || "",
+            likes: data.likes || 0,
+            commentCount: data.commentCount || 0,
+            views: data.views || 0,
+            featured: data.featured || false,
+            hidden: data.hidden || false,
+            createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
+          };
+        });
+        setStatuses(items);
+      },
+      (error) => {
+        console.error("Admin statuses error:", error);
+      }
+    );
     return () => unsub();
   }, [isAdmin]);
 
   // Load users
   useEffect(() => {
     if (!isAdmin) return;
-    const unsub = onSnapshot(collection(db, "users"), (snap) => {
-      const items: UserItem[] = snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          uid: d.id,
-          displayName: data.displayName || "User",
-          email: data.email || null,
-          phoneNumber: data.phoneNumber || null,
-          photoURL: data.photoURL || null,
-          bio: data.bio || "",
-          banned: data.banned || false,
-          isAdmin: data.isAdmin || false,
-          createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
-        };
-      });
-      setUsers(items);
-    });
+    const unsub = onSnapshot(
+      collection(db, "users"),
+      (snap) => {
+        const items: UserItem[] = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            uid: d.id,
+            displayName: data.displayName || "User",
+            email: data.email || null,
+            phoneNumber: data.phoneNumber || null,
+            photoURL: data.photoURL || null,
+            bio: data.bio || "",
+            banned: data.banned || false,
+            isAdmin: data.isAdmin || false,
+            createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
+          };
+        });
+        setUsers(items);
+      },
+      (error) => {
+        console.error("Admin users error:", error);
+      }
+    );
     return () => unsub();
   }, [isAdmin]);
 
-  // Actions
+  // Actions - all wrapped in try/catch
   const toggleFeatured = async (statusId: string, current: boolean) => {
-    await updateDoc(doc(db, "statuses", statusId), { featured: !current });
+    try { await updateDoc(doc(db, "statuses", statusId), { featured: !current }); } catch (e) { console.error(e); }
   };
 
   const toggleHidden = async (statusId: string, current: boolean) => {
-    await updateDoc(doc(db, "statuses", statusId), { hidden: !current });
+    try { await updateDoc(doc(db, "statuses", statusId), { hidden: !current }); } catch (e) { console.error(e); }
   };
 
   const deleteStatus = async (statusId: string) => {
     if (confirm("کیا آپ واقعی اس سٹیٹس کو حذف کرنا چاہتے ہیں؟")) {
-      await deleteDoc(doc(db, "statuses", statusId));
+      try { await deleteDoc(doc(db, "statuses", statusId)); } catch (e) { console.error(e); }
     }
   };
 
   const updateViews = async (statusId: string, views: number) => {
-    await updateDoc(doc(db, "statuses", statusId), { views });
-    setEditViews(null);
+    try { await updateDoc(doc(db, "statuses", statusId), { views }); setEditViews(null); } catch (e) { console.error(e); }
   };
 
   const toggleBanUser = async (uid: string, current: boolean) => {
     if (confirm(current ? "کیا آپ اس صارف کو ان بین کرنا چاہتے ہیں؟" : "کیا آپ اس صارف کو بین کرنا چاہتے ہیں؟")) {
-      await updateDoc(doc(db, "users", uid), { banned: !current });
+      try { await updateDoc(doc(db, "users", uid), { banned: !current }); } catch (e) { console.error(e); }
     }
   };
 
   const toggleAdminRole = async (uid: string, current: boolean) => {
     if (confirm(current ? "ایڈمن رول ہٹائیں؟" : "ایڈمن رول دیں؟")) {
-      await updateDoc(doc(db, "users", uid), { isAdmin: !current });
+      try { await updateDoc(doc(db, "users", uid), { isAdmin: !current }); } catch (e) { console.error(e); }
     }
   };
 

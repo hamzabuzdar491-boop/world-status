@@ -15,9 +15,9 @@ import {
   query,
   where,
   serverTimestamp,
-  onSnapshot,
   orderBy,
 } from "@/lib/firebase";
+import { onSnapshot } from "firebase/firestore";
 import { timeAgo } from "@/lib/utils";
 
 interface StatusData {
@@ -92,58 +92,66 @@ export function StatusCard({
   useEffect(() => {
     if (!user) return;
     const checkLike = async () => {
-      const q = query(
-        collection(db, "statuses", status.id, "likes"),
-        where("userId", "==", user.uid)
-      );
-      const snap = await getDocs(q);
-      setLiked(!snap.empty);
+      try {
+        const likesSnap = await getDocs(collection(db, "statuses", status.id, "likes"));
+        const userLiked = likesSnap.docs.some((d) => d.data().userId === user.uid);
+        setLiked(userLiked);
+      } catch (err) {
+        console.error("Check like error:", err);
+      }
     };
     checkLike();
   }, [user, status.id]);
 
-  // Load comments when opened
+  // Load comments when opened - simple query without composite index
   useEffect(() => {
     if (!showComments) return;
-    const q = query(
-      collection(db, "statuses", status.id, "comments"),
-      orderBy("createdAt", "desc")
+    const commentsRef = collection(db, "statuses", status.id, "comments");
+    const unsub = onSnapshot(
+      commentsRef,
+      (snap) => {
+        const cmts: Comment[] = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<Comment, "id" | "createdAt">),
+          createdAt: d.data().createdAt?.toDate() || new Date(),
+        }));
+        // Sort client-side to avoid needing composite index
+        cmts.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        setComments(cmts);
+        setCommentCount(cmts.length);
+      },
+      (error) => {
+        console.error("Comments listener error:", error);
+      }
     );
-    const unsub = onSnapshot(q, (snap) => {
-      const cmts: Comment[] = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Comment, "id" | "createdAt">),
-        createdAt: d.data().createdAt?.toDate() || new Date(),
-      }));
-      setComments(cmts);
-      setCommentCount(cmts.length);
-    });
     return () => unsub();
   }, [showComments, status.id]);
 
   const handleLike = async () => {
     if (!user) return;
-
-    if (liked) {
-      // Unlike
-      const q = query(
-        collection(db, "statuses", status.id, "likes"),
-        where("userId", "==", user.uid)
-      );
-      const snap = await getDocs(q);
-      snap.forEach((d) => deleteDoc(d.ref));
-      await updateDoc(doc(db, "statuses", status.id), { likes: increment(-1) });
-      setLiked(false);
-      setLikeCount((p) => p - 1);
-    } else {
-      // Like
-      await addDoc(collection(db, "statuses", status.id, "likes"), {
-        userId: user.uid,
-        createdAt: serverTimestamp(),
-      });
-      await updateDoc(doc(db, "statuses", status.id), { likes: increment(1) });
-      setLiked(true);
-      setLikeCount((p) => p + 1);
+    try {
+      if (liked) {
+        // Unlike - get all likes and find user's
+        const likesSnap = await getDocs(collection(db, "statuses", status.id, "likes"));
+        const userLikeDoc = likesSnap.docs.find((d) => d.data().userId === user.uid);
+        if (userLikeDoc) {
+          await deleteDoc(userLikeDoc.ref);
+        }
+        await updateDoc(doc(db, "statuses", status.id), { likes: increment(-1) });
+        setLiked(false);
+        setLikeCount((p) => p - 1);
+      } else {
+        // Like
+        await addDoc(collection(db, "statuses", status.id, "likes"), {
+          userId: user.uid,
+          createdAt: serverTimestamp(),
+        });
+        await updateDoc(doc(db, "statuses", status.id), { likes: increment(1) });
+        setLiked(true);
+        setLikeCount((p) => p + 1);
+      }
+    } catch (err) {
+      console.error("Like error:", err);
     }
   };
 
@@ -159,15 +167,19 @@ export function StatusCard({
 
   const handleAddComment = async () => {
     if (!user || !newComment.trim()) return;
-    await addDoc(collection(db, "statuses", status.id, "comments"), {
-      text: newComment.trim(),
-      userId: user.uid,
-      userName: profile?.displayName || "User",
-      userPhoto: profile?.photoURL || "",
-      createdAt: serverTimestamp(),
-    });
-    await updateDoc(doc(db, "statuses", status.id), { commentCount: increment(1) });
-    setNewComment("");
+    try {
+      await addDoc(collection(db, "statuses", status.id, "comments"), {
+        text: newComment.trim(),
+        userId: user.uid,
+        userName: profile?.displayName || "User",
+        userPhoto: profile?.photoURL || "",
+        createdAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, "statuses", status.id), { commentCount: increment(1) });
+      setNewComment("");
+    } catch (err) {
+      console.error("Comment error:", err);
+    }
   };
 
   const toggleMute = () => {
@@ -184,8 +196,7 @@ export function StatusCard({
         url: window.location.href,
       });
     } catch {
-      // Fallback: copy to clipboard
-      navigator.clipboard.writeText(window.location.href);
+      navigator.clipboard.writeText(window.location.href).catch(() => {});
     }
   };
 
@@ -228,7 +239,7 @@ export function StatusCard({
       {/* Bottom gradient overlay */}
       <div className="absolute bottom-0 left-0 right-0 h-60 bg-gradient-to-t from-background/90 to-transparent pointer-events-none" />
 
-      {/* User info & caption (bottom left / bottom right for RTL) */}
+      {/* User info & caption */}
       <div className="absolute bottom-20 right-4 left-16 z-10">
         <div className="flex items-center gap-2 mb-2">
           <div className="w-8 h-8 rounded-full bg-secondary border border-border overflow-hidden flex-shrink-0">
@@ -262,45 +273,32 @@ export function StatusCard({
         )}
       </div>
 
-      {/* Action buttons (right side / left side for RTL) */}
+      {/* Action buttons */}
       <div className="absolute bottom-24 left-3 flex flex-col items-center gap-5 z-10">
-        {/* Like */}
         <button onClick={handleLike} className="flex flex-col items-center gap-1">
           <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${liked ? "bg-primary/20" : "bg-background/40"}`}>
-            <Heart
-              className={`w-5 h-5 transition-colors ${liked ? "text-primary fill-primary" : "text-foreground"}`}
-            />
+            <Heart className={`w-5 h-5 transition-colors ${liked ? "text-primary fill-primary" : "text-foreground"}`} />
           </div>
           <span className="text-foreground text-xs">{likeCount}</span>
         </button>
 
-        {/* Comment */}
-        <button
-          onClick={(e) => { e.stopPropagation(); setShowComments(true); }}
-          className="flex flex-col items-center gap-1"
-        >
+        <button onClick={(e) => { e.stopPropagation(); setShowComments(true); }} className="flex flex-col items-center gap-1">
           <div className="w-10 h-10 rounded-full bg-background/40 flex items-center justify-center">
             <MessageCircle className="w-5 h-5 text-foreground" />
           </div>
           <span className="text-foreground text-xs">{commentCount}</span>
         </button>
 
-        {/* Share */}
         <button onClick={handleShare} className="flex flex-col items-center gap-1">
           <div className="w-10 h-10 rounded-full bg-background/40 flex items-center justify-center">
             <Share2 className="w-5 h-5 text-foreground" />
           </div>
         </button>
 
-        {/* Mute/Unmute */}
         {(status.type === "video" || status.songUrl) && (
           <button onClick={toggleMute} className="flex flex-col items-center gap-1">
             <div className="w-10 h-10 rounded-full bg-background/40 flex items-center justify-center">
-              {muted ? (
-                <VolumeX className="w-5 h-5 text-foreground" />
-              ) : (
-                <Volume2 className="w-5 h-5 text-foreground" />
-              )}
+              {muted ? <VolumeX className="w-5 h-5 text-foreground" /> : <Volume2 className="w-5 h-5 text-foreground" />}
             </div>
           </button>
         )}
@@ -308,33 +306,17 @@ export function StatusCard({
 
       {/* Comments Sheet */}
       {showComments && (
-        <div
-          className="absolute inset-0 z-40"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowComments(false);
-          }}
-        >
-          <div className="absolute bottom-0 left-0 right-0 bg-card border-t border-border rounded-t-2xl max-h-[60vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Handle bar */}
+        <div className="absolute inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowComments(false); }}>
+          <div className="absolute bottom-0 left-0 right-0 bg-card border-t border-border rounded-t-2xl max-h-[60vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-center py-2">
               <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
             </div>
-
             <div className="px-4 pb-2 border-b border-border">
-              <h3 className="text-foreground font-semibold text-sm">
-                تبصرے ({commentCount})
-              </h3>
+              <h3 className="text-foreground font-semibold text-sm">تبصرے ({commentCount})</h3>
             </div>
-
-            {/* Comments list */}
             <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
               {comments.length === 0 && (
-                <p className="text-muted-foreground text-sm text-center py-8">
-                  ابھی کوئی تبصرہ نہیں ہے
-                </p>
+                <p className="text-muted-foreground text-sm text-center py-8">ابھی کوئی تبصرہ نہیں ہے</p>
               )}
               {comments.map((c) => (
                 <div key={c.id} className="flex gap-2.5">
@@ -355,8 +337,6 @@ export function StatusCard({
                 </div>
               ))}
             </div>
-
-            {/* Add comment */}
             <div className="p-3 border-t border-border flex gap-2">
               <input
                 type="text"

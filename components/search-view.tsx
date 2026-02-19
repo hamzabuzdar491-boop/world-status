@@ -7,11 +7,10 @@ import {
   collection,
   getDocs,
   query,
-  where,
   orderBy,
-  onSnapshot,
   Timestamp,
 } from "@/lib/firebase";
+import { onSnapshot } from "firebase/firestore";
 import { isStatusExpired } from "@/lib/utils";
 
 interface SearchUser {
@@ -35,28 +34,36 @@ export function SearchView() {
   const [trending, setTrending] = useState<TrendingStatus[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Load trending statuses
+  // Load trending statuses - sort client-side to avoid needing composite index
   useEffect(() => {
-    const q = query(collection(db, "statuses"), orderBy("likes", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const items: TrendingStatus[] = [];
-      snap.forEach((d) => {
-        const data = d.data();
-        const createdAt = data.createdAt instanceof Timestamp
-          ? data.createdAt.toDate()
-          : new Date();
-        if (!isStatusExpired(createdAt) && items.length < 12) {
-          items.push({
-            id: d.id,
-            url: data.url,
-            type: data.type,
-            likes: data.likes || 0,
-            userName: data.userName || "User",
-          });
-        }
-      });
-      setTrending(items);
-    });
+    const q = query(collection(db, "statuses"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const items: TrendingStatus[] = [];
+        snap.forEach((d) => {
+          const data = d.data();
+          const createdAt = data.createdAt instanceof Timestamp
+            ? data.createdAt.toDate()
+            : new Date();
+          if (!isStatusExpired(createdAt)) {
+            items.push({
+              id: d.id,
+              url: data.url,
+              type: data.type,
+              likes: data.likes || 0,
+              userName: data.userName || "User",
+            });
+          }
+        });
+        // Sort by likes client-side
+        items.sort((a, b) => b.likes - a.likes);
+        setTrending(items.slice(0, 12));
+      },
+      (error) => {
+        console.error("Trending error:", error);
+      }
+    );
     return () => unsub();
   }, []);
 
@@ -74,11 +81,7 @@ export function SearchView() {
         const results: SearchUser[] = [];
         usersSnap.forEach((d) => {
           const data = d.data();
-          if (
-            data.displayName
-              ?.toLowerCase()
-              .includes(searchQuery.toLowerCase())
-          ) {
+          if (data.displayName?.toLowerCase().includes(searchQuery.toLowerCase())) {
             results.push({
               uid: d.id,
               displayName: data.displayName,
@@ -89,7 +92,7 @@ export function SearchView() {
         });
         setUsers(results);
       } catch (err) {
-        console.error(err);
+        console.error("Search error:", err);
       } finally {
         setLoading(false);
       }
@@ -101,7 +104,6 @@ export function SearchView() {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* Search Bar */}
       <div className="sticky top-0 z-10 bg-background p-4 border-b border-border">
         <div className="relative">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -115,7 +117,6 @@ export function SearchView() {
         </div>
       </div>
 
-      {/* Search Results */}
       {searchQuery && (
         <div className="p-4">
           {loading ? (
@@ -125,10 +126,7 @@ export function SearchView() {
           ) : (
             <div className="flex flex-col gap-3">
               {users.map((u) => (
-                <div
-                  key={u.uid}
-                  className="flex items-center gap-3 p-3 bg-card rounded-xl border border-border"
-                >
+                <div key={u.uid} className="flex items-center gap-3 p-3 bg-card rounded-xl border border-border">
                   <div className="w-10 h-10 rounded-full bg-secondary overflow-hidden flex items-center justify-center flex-shrink-0">
                     {u.photoURL ? (
                       <img src={u.photoURL} alt="" className="w-full h-full object-cover" />
@@ -138,9 +136,7 @@ export function SearchView() {
                   </div>
                   <div className="flex-1">
                     <p className="text-foreground text-sm font-semibold">{u.displayName}</p>
-                    {u.bio && (
-                      <p className="text-muted-foreground text-xs truncate">{u.bio}</p>
-                    )}
+                    {u.bio && <p className="text-muted-foreground text-xs truncate">{u.bio}</p>}
                   </div>
                 </div>
               ))}
@@ -149,7 +145,6 @@ export function SearchView() {
         </div>
       )}
 
-      {/* Trending Grid */}
       {!searchQuery && (
         <div className="p-4">
           <h2 className="text-foreground font-semibold mb-3">ٹرینڈنگ</h2>

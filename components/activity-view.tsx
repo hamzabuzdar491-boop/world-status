@@ -7,12 +7,11 @@ import {
   db,
   collection,
   query,
-  where,
   orderBy,
-  onSnapshot,
   getDocs,
   Timestamp,
 } from "@/lib/firebase";
+import { onSnapshot } from "firebase/firestore";
 import { timeAgo } from "@/lib/utils";
 
 interface Activity {
@@ -34,80 +33,77 @@ export function ActivityView() {
   useEffect(() => {
     if (!user) return;
 
-    // Get user's statuses first, then listen for likes/comments on them
-    const q = query(
-      collection(db, "statuses"),
-      where("userId", "==", user.uid),
-      orderBy("createdAt", "desc")
-    );
+    // Get all statuses, filter for user's statuses client-side
+    const q = query(collection(db, "statuses"), orderBy("createdAt", "desc"));
 
-    const unsub = onSnapshot(q, async (statusSnap) => {
-      const allActivities: Activity[] = [];
+    const unsub = onSnapshot(
+      q,
+      async (statusSnap) => {
+        const allActivities: Activity[] = [];
 
-      for (const statusDoc of statusSnap.docs) {
-        const statusData = statusDoc.data();
+        // Filter to user's statuses client-side
+        const userStatuses = statusSnap.docs.filter((d) => d.data().userId === user.uid);
 
-        // Get likes
-        try {
-          const likesSnap = await getDocs(
-            query(
-              collection(db, "statuses", statusDoc.id, "likes"),
-              where("userId", "!=", user.uid)
-            )
-          );
+        for (const statusDoc of userStatuses) {
+          const statusData = statusDoc.data();
 
-          likesSnap.forEach((likeDoc) => {
-            const likeData = likeDoc.data();
-            allActivities.push({
-              id: likeDoc.id,
-              type: "like",
-              userName: likeData.userName || "User",
-              userPhoto: likeData.userPhoto || "",
-              statusUrl: statusData.url,
-              statusType: statusData.type,
-              createdAt: likeData.createdAt instanceof Timestamp
-                ? likeData.createdAt.toDate()
-                : new Date(),
+          // Get likes - simple getDocs without where to avoid composite index
+          try {
+            const likesSnap = await getDocs(collection(db, "statuses", statusDoc.id, "likes"));
+            likesSnap.forEach((likeDoc) => {
+              const likeData = likeDoc.data();
+              if (likeData.userId !== user.uid) {
+                allActivities.push({
+                  id: likeDoc.id,
+                  type: "like",
+                  userName: likeData.userName || "User",
+                  userPhoto: likeData.userPhoto || "",
+                  statusUrl: statusData.url,
+                  statusType: statusData.type,
+                  createdAt: likeData.createdAt instanceof Timestamp
+                    ? likeData.createdAt.toDate()
+                    : new Date(),
+                });
+              }
             });
-          });
-        } catch {
-          // Index not ready
+          } catch {
+            // Permission or index issue - skip
+          }
+
+          // Get comments
+          try {
+            const commentsSnap = await getDocs(collection(db, "statuses", statusDoc.id, "comments"));
+            commentsSnap.forEach((commentDoc) => {
+              const commentData = commentDoc.data();
+              if (commentData.userId !== user.uid) {
+                allActivities.push({
+                  id: commentDoc.id,
+                  type: "comment",
+                  userName: commentData.userName || "User",
+                  userPhoto: commentData.userPhoto || "",
+                  statusUrl: statusData.url,
+                  statusType: statusData.type,
+                  text: commentData.text,
+                  createdAt: commentData.createdAt instanceof Timestamp
+                    ? commentData.createdAt.toDate()
+                    : new Date(),
+                });
+              }
+            });
+          } catch {
+            // Permission or index issue - skip
+          }
         }
 
-        // Get comments
-        try {
-          const commentsSnap = await getDocs(
-            query(
-              collection(db, "statuses", statusDoc.id, "comments"),
-              where("userId", "!=", user.uid)
-            )
-          );
-
-          commentsSnap.forEach((commentDoc) => {
-            const commentData = commentDoc.data();
-            allActivities.push({
-              id: commentDoc.id,
-              type: "comment",
-              userName: commentData.userName || "User",
-              userPhoto: commentData.userPhoto || "",
-              statusUrl: statusData.url,
-              statusType: statusData.type,
-              text: commentData.text,
-              createdAt: commentData.createdAt instanceof Timestamp
-                ? commentData.createdAt.toDate()
-                : new Date(),
-            });
-          });
-        } catch {
-          // Index not ready
-        }
+        allActivities.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        setActivities(allActivities.slice(0, 50));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Activity error:", error);
+        setLoading(false);
       }
-
-      // Sort by time
-      allActivities.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-      setActivities(allActivities.slice(0, 50));
-      setLoading(false);
-    });
+    );
 
     return () => unsub();
   }, [user]);
@@ -132,10 +128,7 @@ export function ActivityView() {
       ) : (
         <div className="p-4 flex flex-col gap-3">
           {activities.map((a) => (
-            <div
-              key={a.id}
-              className="flex items-center gap-3 p-3 bg-card rounded-xl border border-border"
-            >
+            <div key={a.id} className="flex items-center gap-3 p-3 bg-card rounded-xl border border-border">
               <div className="w-10 h-10 rounded-full bg-secondary overflow-hidden flex items-center justify-center flex-shrink-0">
                 {a.userPhoto ? (
                   <img src={a.userPhoto} alt="" className="w-full h-full object-cover" />
@@ -148,9 +141,7 @@ export function ActivityView() {
                   <span className="font-semibold">{a.userName}</span>{" "}
                   {a.type === "like" ? "نے آپ کی سٹیٹس لائک کی" : "نے تبصرہ کیا"}
                 </p>
-                {a.text && (
-                  <p className="text-muted-foreground text-xs truncate mt-0.5">{a.text}</p>
-                )}
+                {a.text && <p className="text-muted-foreground text-xs truncate mt-0.5">{a.text}</p>}
                 <p className="text-muted-foreground text-xs mt-0.5">{timeAgo(a.createdAt)}</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-secondary overflow-hidden flex-shrink-0">

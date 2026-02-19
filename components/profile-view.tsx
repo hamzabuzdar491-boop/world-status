@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef } from "react";
 import {
-  Settings,
   LogOut,
   Camera,
   Edit3,
@@ -20,15 +19,15 @@ import {
   db,
   signOut,
   doc,
+  getDoc,
   updateDoc,
   collection,
   query,
-  where,
   orderBy,
-  onSnapshot,
   Timestamp,
   uploadToCloudinary,
 } from "@/lib/firebase";
+import { onSnapshot } from "firebase/firestore";
 import { isStatusExpired } from "@/lib/utils";
 
 interface UserStatus {
@@ -56,42 +55,50 @@ export function ProfileView() {
     setEditBio(profile?.bio || "");
     // Check admin status
     const checkAdmin = async () => {
-      const userDoc = await import("@/lib/firebase").then((m) => m.getDoc(m.doc(m.db, "users", user.uid)));
-      if (userDoc.exists() && userDoc.data().isAdmin) {
-        setUserIsAdmin(true);
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists() && userDoc.data().isAdmin) {
+          setUserIsAdmin(true);
+        }
+      } catch (err) {
+        console.error("Admin check error:", err);
       }
     };
     checkAdmin();
   }, [profile, user]);
 
-  // Load user's statuses
+  // Load user's statuses - simple query, filter client-side to avoid composite index
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, "statuses"),
-      where("userId", "==", user.uid),
-      orderBy("createdAt", "desc")
-    );
+    const q = query(collection(db, "statuses"), orderBy("createdAt", "desc"));
 
-    const unsub = onSnapshot(q, (snap) => {
-      const items: UserStatus[] = [];
-      snap.forEach((d) => {
-        const data = d.data();
-        const createdAt = data.createdAt instanceof Timestamp
-          ? data.createdAt.toDate()
-          : new Date();
-        if (!isStatusExpired(createdAt)) {
-          items.push({
-            id: d.id,
-            url: data.url,
-            type: data.type,
-            createdAt,
-            likes: data.likes || 0,
-          });
-        }
-      });
-      setStatuses(items);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const items: UserStatus[] = [];
+        snap.forEach((d) => {
+          const data = d.data();
+          // Filter client-side for user's statuses
+          if (data.userId !== user.uid) return;
+          const createdAt = data.createdAt instanceof Timestamp
+            ? data.createdAt.toDate()
+            : new Date();
+          if (!isStatusExpired(createdAt)) {
+            items.push({
+              id: d.id,
+              url: data.url,
+              type: data.type,
+              createdAt,
+              likes: data.likes || 0,
+            });
+          }
+        });
+        setStatuses(items);
+      },
+      (error) => {
+        console.error("Profile statuses error:", error);
+      }
+    );
 
     return () => unsub();
   }, [user]);
@@ -103,11 +110,15 @@ export function ProfileView() {
 
   const handleSaveProfile = async () => {
     if (!user) return;
-    await updateDoc(doc(db, "users", user.uid), {
-      displayName: editName,
-      bio: editBio,
-    });
-    setEditing(false);
+    try {
+      await updateDoc(doc(db, "users", user.uid), {
+        displayName: editName,
+        bio: editBio,
+      });
+      setEditing(false);
+    } catch (err) {
+      console.error("Save profile error:", err);
+    }
   };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,39 +148,24 @@ export function ProfileView() {
         <div className="flex items-center gap-2">
           {editing ? (
             <>
-              <button
-                onClick={() => setEditing(false)}
-                className="p-2 rounded-lg hover:bg-secondary"
-              >
+              <button onClick={() => setEditing(false)} className="p-2 rounded-lg hover:bg-secondary">
                 <X className="w-5 h-5 text-muted-foreground" />
               </button>
-              <button
-                onClick={handleSaveProfile}
-                className="p-2 rounded-lg hover:bg-secondary"
-              >
+              <button onClick={handleSaveProfile} className="p-2 rounded-lg hover:bg-secondary">
                 <Check className="w-5 h-5 text-primary" />
               </button>
             </>
           ) : (
             <>
               {userIsAdmin && (
-                <button
-                  onClick={() => router.push("/admin")}
-                  className="p-2 rounded-lg hover:bg-secondary"
-                >
+                <button onClick={() => router.push("/admin")} className="p-2 rounded-lg hover:bg-secondary">
                   <Shield className="w-5 h-5 text-primary" />
                 </button>
               )}
-              <button
-                onClick={() => setEditing(true)}
-                className="p-2 rounded-lg hover:bg-secondary"
-              >
+              <button onClick={() => setEditing(true)} className="p-2 rounded-lg hover:bg-secondary">
                 <Edit3 className="w-5 h-5 text-muted-foreground" />
               </button>
-              <button
-                onClick={handleLogout}
-                className="p-2 rounded-lg hover:bg-secondary"
-              >
+              <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-secondary">
                 <LogOut className="w-5 h-5 text-muted-foreground" />
               </button>
             </>
@@ -179,15 +175,10 @@ export function ProfileView() {
 
       {/* Profile Info */}
       <div className="flex flex-col items-center py-6 gap-4">
-        {/* Avatar */}
         <div className="relative">
           <div className="w-24 h-24 rounded-full bg-secondary border-2 border-primary overflow-hidden flex items-center justify-center">
             {profile?.photoURL ? (
-              <img
-                src={profile.photoURL}
-                alt={profile.displayName}
-                className="w-full h-full object-cover"
-              />
+              <img src={profile.photoURL} alt={profile.displayName} className="w-full h-full object-cover" />
             ) : (
               <User className="w-10 h-10 text-muted-foreground" />
             )}
@@ -199,16 +190,9 @@ export function ProfileView() {
           >
             <Camera className="w-3.5 h-3.5 text-primary-foreground" />
           </button>
-          <input
-            ref={photoInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handlePhotoUpload}
-            className="hidden"
-          />
+          <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
         </div>
 
-        {/* Name & Bio */}
         {editing ? (
           <div className="flex flex-col items-center gap-2 w-full px-8">
             <input
@@ -228,21 +212,12 @@ export function ProfileView() {
           </div>
         ) : (
           <div className="flex flex-col items-center gap-1">
-            <h2 className="text-foreground font-bold text-lg">
-              {profile?.displayName || "User"}
-            </h2>
-            {profile?.bio && (
-              <p className="text-muted-foreground text-sm max-w-xs text-center">
-                {profile.bio}
-              </p>
-            )}
-            <p className="text-muted-foreground text-xs mt-1">
-              {profile?.email || profile?.phoneNumber}
-            </p>
+            <h2 className="text-foreground font-bold text-lg">{profile?.displayName || "User"}</h2>
+            {profile?.bio && <p className="text-muted-foreground text-sm max-w-xs text-center">{profile.bio}</p>}
+            <p className="text-muted-foreground text-xs mt-1">{profile?.email || profile?.phoneNumber}</p>
           </div>
         )}
 
-        {/* Stats */}
         <div className="flex items-center gap-8 mt-2">
           <div className="flex flex-col items-center">
             <span className="text-foreground font-bold text-lg">{statuses.length}</span>
@@ -272,22 +247,11 @@ export function ProfileView() {
         ) : (
           <div className="grid grid-cols-3 gap-0.5 px-0.5">
             {statuses.map((s) => (
-              <div
-                key={s.id}
-                className="aspect-square bg-card relative overflow-hidden"
-              >
+              <div key={s.id} className="aspect-square bg-card relative overflow-hidden">
                 {s.type === "video" ? (
-                  <video
-                    src={s.url}
-                    className="w-full h-full object-cover"
-                    muted
-                  />
+                  <video src={s.url} className="w-full h-full object-cover" muted />
                 ) : (
-                  <img
-                    src={s.url}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={s.url} alt="" className="w-full h-full object-cover" />
                 )}
                 <div className="absolute bottom-1 right-1 bg-background/60 px-1.5 py-0.5 rounded text-[10px] text-foreground flex items-center gap-0.5">
                   <Heart className="w-2.5 h-2.5" /> {s.likes}
