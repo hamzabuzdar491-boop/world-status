@@ -11,6 +11,7 @@ import {
   X,
   Check,
   Shield,
+  Heart,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
