@@ -10,6 +10,7 @@ import {
   Grid3X3,
   X,
   Check,
+  Shield,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
@@ -45,12 +46,21 @@ export function ProfileView() {
   const [editName, setEditName] = useState(profile?.displayName || "");
   const [editBio, setEditBio] = useState(profile?.bio || "");
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [userIsAdmin, setUserIsAdmin] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
     setEditName(profile?.displayName || "");
     setEditBio(profile?.bio || "");
+    // Check admin status
+    const checkAdmin = async () => {
+      const userDoc = await import("@/lib/firebase").then((m) => m.getDoc(m.doc(m.db, "users", user.uid)));
+      if (userDoc.exists() && userDoc.data().isAdmin) {
+        setUserIsAdmin(true);
+      }
+    };
+    checkAdmin();
   }, [profile, user]);
 
   // Load user's statuses
@@ -141,6 +151,14 @@ export function ProfileView() {
             </>
           ) : (
             <>
+              {userIsAdmin && (
+                <button
+                  onClick={() => router.push("/admin")}
+                  className="p-2 rounded-lg hover:bg-secondary"
+                >
+                  <Shield className="w-5 h-5 text-primary" />
+                </button>
+              )}
               <button
                 onClick={() => setEditing(true)}
                 className="p-2 rounded-lg hover:bg-secondary"
@@ -277,6 +295,13 @@ export function ProfileView() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Credit Footer */}
+      <div className="p-4 text-center border-t border-border">
+        <p className="text-[10px] text-muted-foreground">
+          Created By <span className="text-foreground font-medium">Muhammad Hussain Shakir</span>
+        </p>
       </div>
     </div>
   );

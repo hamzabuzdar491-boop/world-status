@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Heart, MessageCircle, Share2, Volume2, VolumeX, Music, User } from "lucide-react";
+import { Heart, MessageCircle, Share2, Volume2, VolumeX, Music, User, Eye } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import {
   db,
@@ -32,6 +32,8 @@ interface StatusData {
   userPhoto?: string;
   likes: number;
   commentCount: number;
+  views: number;
+  featured: boolean;
   createdAt: Date;
 }
 
@@ -64,7 +66,7 @@ export function StatusCard({
   const [doubleTapLike, setDoubleTapLike] = useState(false);
   const lastTapRef = useRef(0);
 
-  // Handle video play/pause based on visibility
+  // Handle video play/pause based on visibility + increment views
   useEffect(() => {
     if (videoRef.current) {
       if (isActive) {
@@ -80,7 +82,11 @@ export function StatusCard({
         audioRef.current.pause();
       }
     }
-  }, [isActive]);
+    // Increment view count when status becomes active
+    if (isActive) {
+      updateDoc(doc(db, "statuses", status.id), { views: increment(1) }).catch(() => {});
+    }
+  }, [isActive, status.id]);
 
   // Check if user already liked
   useEffect(() => {
@@ -242,8 +248,12 @@ export function StatusCard({
           <span className="text-muted-foreground text-xs">{timeAgo(status.createdAt)}</span>
         </div>
         {status.caption && (
-          <p className="text-foreground text-sm leading-relaxed mb-2">{status.caption}</p>
+          <p className="text-foreground text-sm leading-relaxed mb-1">{status.caption}</p>
         )}
+        <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1">
+          <Eye className="w-3 h-3" />
+          <span>{(status.views || 0).toLocaleString()} ویوز</span>
+        </div>
         {status.songName && (
           <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
             <Music className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: "3s" }} />

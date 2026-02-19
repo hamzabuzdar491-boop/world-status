@@ -25,6 +25,8 @@ interface StatusData {
   userPhoto?: string;
   likes: number;
   commentCount: number;
+  views: number;
+  featured: boolean;
   createdAt: Date;
 }
 
@@ -45,8 +47,8 @@ export function StatusFeed() {
           ? data.createdAt.toDate()
           : new Date();
 
-        // Only show statuses that are not expired (48 hours)
-        if (!isStatusExpired(createdAt)) {
+        // Only show statuses that are not expired (48 hours) and not hidden
+        if (!isStatusExpired(createdAt) && !data.hidden) {
           items.push({
             id: docSnap.id,
             url: data.url,
@@ -59,9 +61,17 @@ export function StatusFeed() {
             userPhoto: data.userPhoto || "",
             likes: data.likes || 0,
             commentCount: data.commentCount || 0,
+            views: data.views || 0,
+            featured: data.featured || false,
             createdAt,
           });
         }
+      });
+      // Sort: featured first, then by date
+      items.sort((a, b) => {
+        if (a.featured && !b.featured) return -1;
+        if (!a.featured && b.featured) return 1;
+        return b.createdAt.getTime() - a.createdAt.getTime();
       });
       setStatuses(items);
       setLoading(false);

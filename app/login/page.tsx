@@ -498,6 +498,11 @@ export default function LoginPage() {
             </>
           )}
         </div>
+
+        {/* Credit */}
+        <p className="text-center text-[10px] text-muted-foreground mt-6">
+          Created By <span className="text-foreground font-medium">Muhammad Hussain Shakir</span>
+        </p>
       </div>
     </div>
   );

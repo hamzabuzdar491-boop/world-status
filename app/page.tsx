@@ -52,11 +52,12 @@ export default function HomePage() {
       {/* Top Header (only on home) */}
       {activeTab === "home" && (
         <div className="fixed top-0 left-0 right-0 z-30 bg-background/80 backdrop-blur-md border-b border-border/50">
-          <div className="flex items-center justify-center py-3">
+          <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-2">
               <Globe className="w-5 h-5 text-primary" />
               <h1 className="text-foreground font-bold text-base">World Status</h1>
             </div>
+            <span className="text-[9px] text-muted-foreground">By M. Hussain Shakir</span>
           </div>
         </div>
       )}
